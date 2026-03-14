@@ -4,6 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import { FooterGravity } from "./components/FooterGravity";
 import { FaXTwitter, FaGithub, FaLinkedinIn } from "react-icons/fa6";
 import { HiOutlineMail, HiOutlineGlobe } from "react-icons/hi";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const TOKEN_COLORS = [
   "bg-blue-500/15 text-blue-400 border-blue-500/30",
@@ -27,14 +34,34 @@ const SPLIT_COLORS = [
   "text-red-400",
 ];
 
+interface TokenEntry {
+  text: string;
+  hiddenBefore: number;
+}
+
+const MODELS = [
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { id: "claude-opus-4-6", label: "Opus 4.6" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+  { id: "claude-sonnet-4-5-20250929", label: "Sonnet 4.5" },
+  { id: "claude-opus-4-5-20251101", label: "Opus 4.5" },
+  { id: "claude-sonnet-4-20250514", label: "Sonnet 4" },
+  { id: "claude-opus-4-20250514", label: "Opus 4" },
+];
+
 export default function Home() {
   const [text, setText] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("claude-sonnet-4-5-20250929");
   const [showKey, setShowKey] = useState(false);
-  const [tokens, setTokens] = useState<string[]>([]);
+  const [tokens, setTokens] = useState<TokenEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  const [totalHidden, setTotalHidden] = useState(0);
+  const [trailingHidden, setTrailingHidden] = useState(0);
+  const pendingHiddenRef = useRef(0);
+  const pendingStalledRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -57,6 +84,10 @@ export default function Home() {
     setTokens([]);
     setError("");
     setDone(false);
+    setTotalHidden(0);
+    setTrailingHidden(0);
+    pendingHiddenRef.current = 0;
+    pendingStalledRef.current = 0;
     setLoading(true);
 
     abortRef.current = new AbortController();
@@ -65,7 +96,7 @@ export default function Home() {
       const res = await fetch("/api/tokenize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, apiKey: apiKey || undefined }),
+        body: JSON.stringify({ text, apiKey: apiKey || undefined, model }),
         signal: abortRef.current.signal,
       });
 
@@ -106,8 +137,19 @@ export default function Home() {
             return;
           }
 
+          if (data.hiddenTokens !== undefined || data.stalledTokens !== undefined) {
+            const h = data.hiddenTokens || 0;
+            pendingHiddenRef.current += h;
+            setTotalHidden((prev) => prev + h);
+            if (data.trailing && h > 0) {
+              setTrailingHidden(h);
+            }
+          }
+
           if (data.token) {
-            setTokens((prev) => [...prev, data.token]);
+            const hidden = pendingHiddenRef.current;
+            pendingHiddenRef.current = 0;
+            setTokens((prev) => [...prev, { text: data.token, hiddenBefore: hidden }]);
           }
         }
       }
@@ -157,27 +199,52 @@ export default function Home() {
             </p>
           </div>
 
-          {/* API Key */}
+          {/* Model + API Key */}
           <div className="mb-8 fade-in-up-delay-1">
-            <label className="text-xs uppercase tracking-[0.3em] text-gray-500 mb-3 block">
-              API Key
-            </label>
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <input
-                  type={showKey ? "text" : "password"}
-                  value={apiKey}
-                  onChange={(e) => handleKeyChange(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="w-full bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg px-4 py-3 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-colors font-mono text-sm"
-                />
+            <div className="flex gap-4">
+              <div>
+                <label className="text-xs uppercase tracking-[0.3em] text-gray-500 mb-3 block">
+                  Model
+                </label>
+                <Select value={model} onValueChange={(v) => v && setModel(v)}>
+                  <SelectTrigger className="w-48 bg-[#1a1a1a] border-[#2d2d2d] text-gray-100 font-mono text-sm focus:border-blue-500/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a1a1a] border-[#2d2d2d]">
+                    {MODELS.map((m) => (
+                      <SelectItem
+                        key={m.id}
+                        value={m.id}
+                        className="font-mono text-sm text-gray-300 focus:bg-[#2d2d2d] focus:text-white"
+                      >
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <button
-                onClick={() => setShowKey(!showKey)}
-                className="px-4 py-3 bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg text-gray-400 hover:text-gray-200 hover:border-gray-600 transition-colors text-sm cursor-pointer"
-              >
-                {showKey ? "Hide" : "Show"}
-              </button>
+              <div className="flex-1">
+                <label className="text-xs uppercase tracking-[0.3em] text-gray-500 mb-3 block">
+                  API Key
+                </label>
+                <div className="flex gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type={showKey ? "text" : "password"}
+                      value={apiKey}
+                      onChange={(e) => handleKeyChange(e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="w-full bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg px-4 py-3 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500/50 transition-colors font-mono text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowKey(!showKey)}
+                    className="px-4 py-3 bg-[#1a1a1a] border border-[#2d2d2d] rounded-lg text-gray-400 hover:text-gray-200 hover:border-gray-600 transition-colors text-sm cursor-pointer"
+                  >
+                    {showKey ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </div>
             </div>
             <p className="text-gray-600 text-xs mt-2">
               Your key is stored locally in your browser and sent directly to
@@ -210,7 +277,8 @@ export default function Home() {
 
               {loading && (
                 <span className="text-gray-500 text-sm">
-                  {tokens.length} tokens found...
+                  {tokens.length} token{tokens.length !== 1 ? "s" : ""} found
+                  {totalHidden > 0 ? ` (+${totalHidden} hidden)` : ""}...
                 </span>
               )}
 
@@ -238,7 +306,9 @@ export default function Home() {
                   Results
                 </h2>
                 <p className="text-gray-500 text-sm mb-6">
-                  {tokens.length} tokens{done ? "" : " so far..."}
+                  {tokens.length} token{tokens.length !== 1 ? "s" : ""}
+                  {totalHidden > 0 && ` + ${totalHidden} hidden`}
+                  {done ? "" : " so far..."}
                 </p>
 
                 {/* Token chips */}
@@ -246,16 +316,33 @@ export default function Home() {
                   <label className="text-xs uppercase tracking-[0.3em] text-gray-500 mb-3 block">
                     Token chips
                   </label>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5 items-center">
                     {tokens.map((token, i) => (
-                      <span
-                        key={i}
-                        className={`inline-block px-2.5 py-1 rounded-md border text-sm font-mono ${TOKEN_COLORS[i % TOKEN_COLORS.length]}`}
-                        title={`Token ${i + 1}: ${JSON.stringify(token)}`}
-                      >
-                        {formatToken(token)}
+                      <span key={i} className="inline-flex items-center gap-1.5">
+                        {token.hiddenBefore > 0 && (
+                          <span
+                            className="inline-block px-2 py-1 rounded-md border border-dashed border-yellow-600/50 bg-yellow-500/10 text-xs text-yellow-500 font-mono"
+                            title={`${token.hiddenBefore} hidden token${token.hiddenBefore !== 1 ? "s" : ""} — consumed token budget but produced no visible text`}
+                          >
+                            +{token.hiddenBefore} hidden
+                          </span>
+                        )}
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-md border text-sm font-mono ${TOKEN_COLORS[i % TOKEN_COLORS.length]}`}
+                          title={`Token ${i + 1}: ${JSON.stringify(token.text)}`}
+                        >
+                          {formatToken(token.text)}
+                        </span>
                       </span>
                     ))}
+                    {done && trailingHidden > 0 && (
+                      <span
+                        className="inline-block px-2 py-1 rounded-md border border-dashed border-yellow-600/50 bg-yellow-500/10 text-xs text-yellow-500 font-mono"
+                        title={`${trailingHidden} hidden token${trailingHidden !== 1 ? "s" : ""} at end of output`}
+                      >
+                        +{trailingHidden} hidden
+                      </span>
+                    )}
                     {loading && (
                       <span className="inline-block px-2.5 py-1 rounded-md border border-[#2d2d2d] bg-[#1a1a1a] text-gray-500 text-sm animate-pulse">
                         ...
@@ -276,11 +363,17 @@ export default function Home() {
                       {i > 0 && (
                         <span className="text-gray-700 mx-0.5">|</span>
                       )}
+                      {token.hiddenBefore > 0 && (
+                        <span className="text-yellow-500/70 text-xs mx-0.5">[+{token.hiddenBefore} hidden]</span>
+                      )}
                       <span className={SPLIT_COLORS[i % SPLIT_COLORS.length]}>
-                        {token}
+                        {token.text}
                       </span>
                     </span>
                   ))}
+                  {done && trailingHidden > 0 && (
+                    <span className="text-yellow-500/70 text-xs mx-0.5">[+{trailingHidden} hidden]</span>
+                  )}
                 </div>
               </div>
 
@@ -290,7 +383,7 @@ export default function Home() {
                   Raw tokens
                 </label>
                 <div className="bg-[#1a1a1a] border border-[#2d2d2d] rounded-xl p-6 font-mono text-sm text-gray-400 break-all">
-                  [{tokens.map((t) => JSON.stringify(t)).join(", ")}]
+                  [{tokens.map((t) => JSON.stringify(t.text)).join(", ")}]
                 </div>
               </div>
             </div>

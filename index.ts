@@ -13,15 +13,16 @@ if (!input) {
   process.exit(1);
 }
 
-const SYSTEM_PROMPT = `You are a precise text repeater. Your ONLY job is to repeat the user's text EXACTLY as given. Do not add anything before or after. Do not explain. Do not add quotes. Just output the exact text.`;
+const SYSTEM_PROMPT = `You are a precise text repeater. Your ONLY job is to repeat the user's text EXACTLY as given — same capitalization, same punctuation, same spacing. PRESERVE ALL CAPS, mixed case, and any unusual formatting exactly. Do not add anything before or after. Do not explain. Do not add quotes. Just output the exact text.`;
 
 const USER_PROMPT = (text: string) =>
-  `Repeat this text exactly, character for character. Output nothing else:\n${text}`;
+  `Repeat this text exactly, character for character, preserving all capitalization and formatting. Output nothing else:\n${text}`;
 
 async function tokenize(text: string) {
   const tokens: string[] = [];
   let prevOutput = "";
   let n = 1;
+  let stalls = 0;
 
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: USER_PROMPT(text) },
@@ -38,7 +39,12 @@ async function tokenize(text: string) {
       messages,
     });
 
-    if (response.content.length === 0) break;
+    if (response.content.length === 0) {
+      stalls++;
+      if (stalls > 5) break;
+      n++;
+      continue;
+    }
 
     const block = response.content[0];
     if (block.type !== "text") break;
@@ -47,8 +53,15 @@ async function tokenize(text: string) {
 
     // The new token is the diff between this output and previous
     const newToken = fullOutput.slice(prevOutput.length);
-    if (newToken === "") break;
+    if (newToken === "") {
+      // Model stopped early but hasn't reproduced full text — keep pushing
+      stalls++;
+      if (stalls > 5) break;
+      n++;
+      continue;
+    }
 
+    stalls = 0;
     tokens.push(newToken);
     prevOutput = fullOutput;
     n++;
