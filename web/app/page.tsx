@@ -11,6 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const TOKEN_COLORS = [
   "bg-blue-500/15 text-blue-400 border-blue-500/30",
@@ -40,6 +50,7 @@ interface TokenEntry {
 }
 
 const MODELS = [
+  { id: "claude-opus-4-7", label: "Opus 4.7" },
   { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
   { id: "claude-opus-4-6", label: "Opus 4.6" },
   { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
@@ -60,6 +71,7 @@ export default function Home() {
   const [done, setDone] = useState(false);
   const [totalHidden, setTotalHidden] = useState(0);
   const [trailingHidden, setTrailingHidden] = useState(0);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const pendingHiddenRef = useRef(0);
   const pendingStalledRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -78,9 +90,16 @@ export default function Home() {
     }
   }
 
-  async function handleTokenize() {
+  function handleTokenize() {
     if (!text.trim()) return;
+    if (text.length > 280) {
+      setConfirmOpen(true);
+      return;
+    }
+    void runTokenize();
+  }
 
+  async function runTokenize() {
     setTokens([]);
     setError("");
     setDone(false);
@@ -452,6 +471,29 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tokenize {text.length} characters?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This makes one API call per token, so long inputs take a while
+              and use proportional API credits. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                void runTokenize();
+              }}
+            >
+              Tokenize
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

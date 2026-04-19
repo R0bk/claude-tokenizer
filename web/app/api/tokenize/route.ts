@@ -42,19 +42,31 @@ export async function POST(req: NextRequest) {
       let consecutiveStalls = 0;
       let pendingHidden = 0;  // genuine hidden tokens (max_tokens stop with no new text)
       let pendingStalls = 0;  // model stubbornness (end_turn with no new text)
+      let lastUsage = 0;      // cumulative output_tokens from previous call
 
       try {
         while (prevOutput.length < text.length) {
+          const modelId = model || "claude-sonnet-4-20250514";
+          const supportsTemperature = !modelId.startsWith("claude-opus-4-7");
           const response = await client.messages.create({
-            model: model || "claude-sonnet-4-20250514",
+            model: modelId,
             max_tokens: n,
-            temperature: 0,
+            ...(supportsTemperature ? { temperature: 0 } : {}),
             system: SYSTEM_PROMPT,
             messages,
           });
 
+          const usage = response.usage?.output_tokens ?? 0;
+          const usageDelta = Math.max(0, usage - lastUsage);
+          lastUsage = usage;
+
           if (response.content.length === 0) {
             consecutiveStalls++;
+            if (response.stop_reason === "max_tokens") {
+              pendingHidden += usageDelta > 0 ? usageDelta : 1;
+            } else if (usageDelta > 0) {
+              pendingStalls += usageDelta;
+            }
             if (consecutiveStalls > 5) break;
             n++;
             continue;
@@ -69,13 +81,20 @@ export async function POST(req: NextRequest) {
           if (newToken === "") {
             consecutiveStalls++;
             if (response.stop_reason === "max_tokens") {
-              pendingHidden++;
+              pendingHidden += usageDelta > 0 ? usageDelta : 1;
             } else {
-              pendingStalls++;
+              pendingStalls += usageDelta > 0 ? usageDelta : 1;
             }
             if (consecutiveStalls > 5) break;
             n++;
             continue;
+          }
+
+          // Visible text appeared. Account for any extra tokens the API
+          // billed beyond the single visible token we're about to emit —
+          // those are hidden tokens that rode along with this call.
+          if (usageDelta > 1) {
+            pendingHidden += usageDelta - 1;
           }
 
           // Emit any accumulated hidden/stalled tokens before this visible one
