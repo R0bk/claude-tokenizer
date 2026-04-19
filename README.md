@@ -35,21 +35,23 @@ Note: This is ovbiosuly very expensive (t^2 pricing) and purpsefully ignores the
 
 ## What's in here
 
-- **CLI** (`index.ts`) — pipe text in, get token boundaries out
+- **CLI** (`cli/`) — pipe text in, get token boundaries out
 - **Web app** (`web/`) — Next.js app with live streaming results, bring your own API key
 
 ## Setup
 
 ```bash
-# CLI
-npm install
+# Shared: put your key in .env at the repo root
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+
+# CLI
+cd cli
+npm install
 npm run tokenize -- "your text here"
 
 # Web app
 cd web
 npm install
-ln -s ../.env .env.local  # or set ANTHROPIC_API_KEY in .env.local
 npm run dev
 ```
 
